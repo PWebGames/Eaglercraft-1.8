@@ -1,62 +1,42 @@
 // service-worker.js
 
-const CACHE_NAME = "eaglercraft-cache-v1";
-
-// Files to pre-cache
-const PRECACHE_URLS = [
-  "/",                  // index.html
+const CACHE_NAME = "eaglercraft-static-cache-v1";
+const STATIC_FILES = [
+  "/",
   "/index.html",
   "/manifest.json",
   "/icons/icon-192.png",
   "/icons/icon-512.png"
 ];
 
-// Install event: cache core files
+// Cache only static files
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(PRECACHE_URLS))
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_FILES))
   );
   self.skipWaiting();
 });
 
-// Activate event: clean up old caches
+// Activate: remove old caches
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
       Promise.all(
-        keys.map((key) => {
-          if (key !== CACHE_NAME) return caches.delete(key);
-        })
+        keys.map((key) => key !== CACHE_NAME && caches.delete(key))
       )
     )
   );
   self.clients.claim();
 });
 
-// Fetch event: serve cached files if available, fallback to network
+// Fetch: serve static files from cache, let everything else go to network
 self.addEventListener("fetch", (event) => {
-  if (event.request.method !== "GET") return;
-
-  event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      if (cachedResponse) return cachedResponse;
-
-      return fetch(event.request)
-        .then((networkResponse) => {
-          // Cache same-origin requests dynamically (like Eaglercraft assets)
-          if (event.request.url.startsWith(self.location.origin)) {
-            caches.open(CACHE_NAME).then((cache) => {
-              cache.put(event.request, networkResponse.clone());
-            });
-          }
-          return networkResponse;
-        })
-        .catch(() => {
-          // Offline fallback: serve index.html for navigation requests
-          if (event.request.destination === "document") {
-            return caches.match("/index.html");
-          }
-        });
-    })
-  );
+  if (STATIC_FILES.includes(new URL(event.request.url).pathname)) {
+    event.respondWith(
+      caches.match(event.request).then((resp) => resp || fetch(event.request))
+    );
+  } else {
+    // For all other requests (like .pack.gz), just go to network
+    event.respondWith(fetch(event.request));
+  }
 });
